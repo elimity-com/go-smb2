@@ -215,6 +215,51 @@ func (c SidDecoder) Decode() *Sid {
 	}
 }
 
+type SidEncoder struct {
+	Sid string
+}
+
+func (c *SidEncoder) Size() int {
+	if c.Sid == "" {
+		return 0
+	}
+
+	return 8 + len(strings.Split(c.Sid, "-")[2:])*4
+}
+
+func (c *SidEncoder) Encode(p []byte) {
+
+	var authority uint64
+	s := strings.Split(c.Sid, "-")[2:]
+	if strings.HasPrefix(s[0], "0x") {
+		authority, _ = strconv.ParseUint(s[0], 16, 64)
+	} else {
+		authority, _ = strconv.ParseUint(s[0], 10, 64)
+	}
+
+	s = s[1:]
+	var subAuthority []uint32
+
+	for _, sub := range s {
+		var temp uint64
+		if strings.HasPrefix(sub, "0x") {
+			temp, _ = strconv.ParseUint(sub, 16, 32)
+		} else {
+			temp, _ = strconv.ParseUint(sub, 10, 32)
+		}
+
+		subAuthority = append(subAuthority, uint32(temp))
+	}
+
+	sid := Sid{
+		Revision:            0x01,
+		IdentifierAuthority: authority,
+		SubAuthority:        subAuthority,
+	}
+
+	sid.Encode(p)
+}
+
 type SecurityDescriptorDecoder []byte
 
 func (c SecurityDescriptorDecoder) IsInvalid() bool {
@@ -485,4 +530,193 @@ func (c ACLDecoder) ACEs() []ACEDecoder {
 	}
 
 	return aces
+}
+
+type ACLEncoder struct {
+	ACEs []ACEEncoder
+}
+
+func (c *ACLEncoder) Size() int {
+	size := 8
+	for _, e := range c.ACEs {
+		size += e.Size()
+	}
+
+	return size
+}
+
+func (c *ACLEncoder) ACLRevision() uint8 {
+	for _, e := range c.ACEs {
+		switch e.AceType {
+		case ACE_TYPE_ACCESS_ALLOWED_OBJECT,
+			ACE_TYPE_ACCESS_DENIED_OBJECT,
+			ACE_TYPE_SYSTEM_AUDIT_OBJECT,
+			ACE_TYPE_SYSTEM_ALARM_OBJECT,
+			ACE_TYPE_ACCESS_ALLOWED_CALLBACK_OBJECT:
+			return ACL_REVISION_DS
+		}
+	}
+
+	return ACL_REVISION
+}
+
+func (c *ACLEncoder) Encode(p []byte) {
+	p[0] = c.ACLRevision()
+	p[1] = 0
+	le.PutUint16(p[2:4], uint16(len(c.ACEs)))
+	le.PutUint16(p[6:8], 0)
+
+	offset := 8
+	for _, e := range c.ACEs {
+		size := e.Size()
+		e.Encode(p[offset : offset+size])
+		offset += size
+	}
+
+	le.PutUint16(p[4:6], uint16(offset))
+}
+
+type ACEEncoder struct {
+	AceType  uint8
+	AceFlags uint8
+	Mask     uint32
+	Sid      SidEncoder
+
+	ApplicationData     []byte
+	AttributeData       []byte
+	Flags               uint32
+	InheritedObjectType []byte
+	ObjectType          []byte
+}
+
+func (c *ACEEncoder) Size() int {
+	size := 8
+	size += c.Sid.Size()
+	switch c.AceType {
+	case ACE_TYPE_ACCESS_ALLOWED_OBJECT,
+		ACE_TYPE_ACCESS_DENIED_OBJECT,
+		ACE_TYPE_ACCESS_ALLOWED_CALLBACK_OBJECT,
+		ACE_TYPE_ACCESS_DENIED_CALLBACK_OBJECT,
+		ACE_TYPE_SYSTEM_AUDIT_OBJECT,
+		ACE_TYPE_SYSTEM_AUDIT_CALLBACK_OBJECT:
+
+		size += 4 + 32
+	}
+
+	switch c.AceType {
+	case ACE_TYPE_ACCESS_ALLOWED_CALLBACK,
+		ACE_TYPE_ACCESS_DENIED_CALLBACK,
+		ACE_TYPE_ACCESS_ALLOWED_CALLBACK_OBJECT,
+		ACE_TYPE_ACCESS_DENIED_CALLBACK_OBJECT,
+		ACE_TYPE_SYSTEM_AUDIT_OBJECT,
+		ACE_TYPE_SYSTEM_AUDIT_CALLBACK,
+		ACE_TYPE_SYSTEM_AUDIT_CALLBACK_OBJECT:
+		size += len(c.ApplicationData)
+	case ACE_TYPE_SYSTEM_RESOURCE_ATTRIBUTE:
+		size += len(c.AttributeData)
+	}
+
+	// AceSize must be multiple of 4
+	if size%4 != 0 {
+		size += 4 - size%4
+	}
+	return size
+}
+
+func (c *ACEEncoder) Encode(p []byte) {
+	p[0] = c.AceType
+	p[1] = c.AceFlags
+	le.PutUint16(p[2:4], uint16(len(p)))
+	le.PutUint32(p[4:8], c.Mask)
+
+	body := p[8:]
+	sidSize := c.Sid.Size()
+	switch c.AceType {
+	case ACE_TYPE_ACCESS_ALLOWED_OBJECT,
+		ACE_TYPE_ACCESS_DENIED_OBJECT,
+		ACE_TYPE_ACCESS_ALLOWED_CALLBACK_OBJECT,
+		ACE_TYPE_ACCESS_DENIED_CALLBACK_OBJECT,
+		ACE_TYPE_SYSTEM_AUDIT_OBJECT,
+		ACE_TYPE_SYSTEM_AUDIT_CALLBACK_OBJECT:
+
+		le.PutUint32(body[0:4], c.Flags)
+		copy(body[4:20], c.ObjectType)
+		copy(body[20:36], c.InheritedObjectType)
+		body = body[36:]
+	}
+	c.Sid.Encode(body)
+	body = body[sidSize:]
+
+	switch c.AceType {
+	case ACE_TYPE_ACCESS_ALLOWED_CALLBACK,
+		ACE_TYPE_ACCESS_DENIED_CALLBACK,
+		ACE_TYPE_ACCESS_ALLOWED_CALLBACK_OBJECT,
+		ACE_TYPE_ACCESS_DENIED_CALLBACK_OBJECT,
+		ACE_TYPE_SYSTEM_AUDIT_OBJECT,
+		ACE_TYPE_SYSTEM_AUDIT_CALLBACK,
+		ACE_TYPE_SYSTEM_AUDIT_CALLBACK_OBJECT:
+		copy(body, c.ApplicationData)
+	case ACE_TYPE_SYSTEM_RESOURCE_ATTRIBUTE:
+		copy(body, c.AttributeData)
+	}
+}
+
+type SecurityDescriptorEncoder struct {
+	Owner SidEncoder
+	Group SidEncoder
+	Flags uint16
+	Sacl  ACLEncoder
+	Dacl  ACLEncoder
+}
+
+func (c *SecurityDescriptorEncoder) Size() int {
+	size := 20 + c.Owner.Size() + c.Group.Size()
+	if c.Flags&SECURITY_DESCRIPTOR_SACL_PRESENT != 0 {
+		size += c.Sacl.Size()
+	}
+	if c.Flags&SECURITY_DESCRIPTOR_DACL_PRESENT != 0 {
+		size += c.Dacl.Size()
+	}
+
+	return size
+}
+
+func (c *SecurityDescriptorEncoder) Encode(p []byte) {
+	//Revision
+	p[0] = 1
+	//Sbz1: SECURITY_DESCRIPTOR_RM_CONTROL_VALID is unsupported for now
+	p[1] = 0
+	c.Flags = c.Flags &^ SECURITY_DESCRIPTOR_RM_CONTROL_VALID
+	//Control
+	le.PutUint16(p[2:4], c.Flags)
+
+	offset := 20
+
+	//OffsetOwner
+	if c.Owner.Sid != "" {
+		le.PutUint32(p[4:8], 20)
+		c.Owner.Encode(p[20:])
+		offset += c.Owner.Size()
+	}
+
+	//OffsetGroup
+	if c.Group.Sid != "" {
+		le.PutUint32(p[8:12], uint32(offset))
+		c.Group.Encode(p[offset:])
+		offset += c.Group.Size()
+	}
+
+	//OffsetSacl
+	if c.Flags&SECURITY_DESCRIPTOR_SACL_PRESENT != 0 {
+		le.PutUint32(p[12:16], uint32(offset))
+		c.Sacl.Encode(p[offset:])
+		offset += c.Sacl.Size()
+	}
+
+	// OffsetDacl
+	if c.Flags&SECURITY_DESCRIPTOR_DACL_PRESENT != 0 {
+		le.PutUint32(p[12:16], uint32(offset))
+		c.Dacl.Encode(p[offset:])
+		offset += c.Dacl.Size()
+	}
 }

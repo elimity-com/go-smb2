@@ -1487,7 +1487,57 @@ func (f *File) Security() (*FileSecurityInfo, error) {
 		Sacl:  sacl,
 		Dacl:  dacl,
 	}, nil
+}
 
+func (f *File) SetSecurity(info *FileSecurityInfo) error {
+	err := f.setSecurity(info)
+	if err != nil {
+		return &os.PathError{Op: "security", Path: f.name, Err: err}
+	}
+	return nil
+}
+
+func (f *File) setSecurity(setInfo *FileSecurityInfo) error {
+
+	newACLEncoder := func(acl []ACE) ACLEncoder {
+		var result ACLEncoder
+		for _, ace := range acl {
+			result.ACEs = append(result.ACEs, ACEEncoder{
+				AceType:             ace.AceType,
+				AceFlags:            ace.AceFlags,
+				Mask:                ace.Mask,
+				Sid:                 SidEncoder{Sid: ace.Sid},
+				ApplicationData:     ace.ApplicationData,
+				AttributeData:       ace.AttributeData,
+				Flags:               ace.Flags,
+				InheritedObjectType: ace.InheritedObjectType,
+				ObjectType:          ace.ObjectType,
+			})
+		}
+		return result
+	}
+
+	info := &SetInfoRequest{
+		InfoType:              SMB2_0_INFO_SECURITY,
+		FileInfoClass:         0,
+		AdditionalInformation: OWNER_SECURITY_INFORMATION | GROUP_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION,
+		Input: &SecurityDescriptorEncoder{
+			Owner: SidEncoder{Sid: setInfo.Owner},
+			Group: SidEncoder{Sid: setInfo.Group},
+			Flags: setInfo.Flags,
+			Sacl:  newACLEncoder(setInfo.Sacl),
+			Dacl:  newACLEncoder(setInfo.Dacl),
+		},
+	}
+
+	err := f.setInfo(info)
+	if e := f.close(); err == nil {
+		err = e
+	}
+	if err != nil {
+		return &os.PathError{Op: "setSecurity", Path: f.name, Err: err}
+	}
+	return nil
 }
 
 type FileFsInfo interface {
