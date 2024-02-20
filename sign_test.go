@@ -5,9 +5,9 @@ import (
 	"crypto/aes"
 	"encoding/hex"
 
-	"github.com/principis/go-smb2/internal/crypto/cmac"
+	"github.com/elimity-com/go-smb2/internal/crypto/cmac"
 
-	. "github.com/principis/go-smb2/internal/smb2"
+	. "github.com/elimity-com/go-smb2/internal/smb2"
 
 	"testing"
 )

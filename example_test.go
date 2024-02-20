@@ -6,7 +6,7 @@ import (
 	"io/ioutil"
 	"net"
 
-	"github.com/principis/go-smb2"
+	"github.com/elimity-com/go-smb2"
 )
 
 func Example() {

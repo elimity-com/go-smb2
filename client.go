@@ -13,10 +13,10 @@ import (
 	"sync"
 	"time"
 
-	. "github.com/principis/go-smb2/internal/erref"
-	. "github.com/principis/go-smb2/internal/smb2"
+	. "github.com/elimity-com/go-smb2/internal/erref"
+	. "github.com/elimity-com/go-smb2/internal/smb2"
 
-	"github.com/principis/go-smb2/internal/msrpc"
+	"github.com/elimity-com/go-smb2/internal/msrpc"
 )
 
 // Dialer contains options for func (*Dialer) Dial.

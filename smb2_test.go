@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/principis/go-smb2"
+	"github.com/elimity-com/go-smb2"
 
 	"testing"
 )

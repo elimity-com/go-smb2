@@ -1,7 +1,7 @@
 package smb2
 
 import (
-	. "github.com/principis/go-smb2/internal/smb2"
+	. "github.com/elimity-com/go-smb2/internal/smb2"
 )
 
 // client

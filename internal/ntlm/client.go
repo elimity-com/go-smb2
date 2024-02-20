@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/principis/go-smb2/internal/utf16le"
+	"github.com/elimity-com/go-smb2/internal/utf16le"
 )
 
 // NTLM v2 client

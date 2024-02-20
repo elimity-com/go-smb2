@@ -1,4 +1,4 @@
-module github.com/principis/go-smb2
+module github.com/elimity-com/go-smb2
 
 go 1.12
 
